@@ -364,7 +364,7 @@ module "ec2" {
 
 - See below:
 
-![2-tier dir](2-tier-dir.png)
+![2-tier dir](/images/2-tier-dir.png)
 
 ### Networking module
 
