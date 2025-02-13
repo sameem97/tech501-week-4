@@ -364,27 +364,11 @@ module "ec2" {
 
 - See below:
 
-.
-├── README.md
-├── app-module
-│   ├── main.tf
-│   ├── outputs.tf
-│   └── variables.tf
-├── db-module
-│   ├── main.tf
-│   ├── outputs.tf
-│   └── variables.tf
-├── main.tf
-├── networking-module
-│   ├── main.tf
-│   ├── outputs.tf
-│   └── variables.tf
-├── terraform.tfvars
-└── variables.tf
+![2-tier dir](2-tier-dir.png)
 
 ### Networking module
 
--  main.tf:
+- main.tf:
 
 ```hcl
 resource "azurerm_public_ip" "app_ip" {
