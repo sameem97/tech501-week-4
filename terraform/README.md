@@ -1,4 +1,38 @@
-# **Terraform: Overview, Benefits, and Best Practices**
+# **Terraform**
+
+- [**Terraform**](#terraform)
+  - [**What is Terraform? What is it used for?**](#what-is-terraform-what-is-it-used-for)
+    - [**Use Cases of Terraform:**](#use-cases-of-terraform)
+  - [**Why Use Terraform? The Benefits**](#why-use-terraform-the-benefits)
+    - [**1. Infrastructure as Code (IaC)**](#1-infrastructure-as-code-iac)
+    - [**2. Multi-Cloud Support**](#2-multi-cloud-support)
+    - [**3. Declarative Configuration**](#3-declarative-configuration)
+    - [**4. State Management**](#4-state-management)
+    - [**5. Modular and Reusable Code**](#5-modular-and-reusable-code)
+    - [**6. Change Automation and Plan Execution**](#6-change-automation-and-plan-execution)
+    - [**7. Idempotency**](#7-idempotency)
+  - [**Alternatives to Terraform**](#alternatives-to-terraform)
+  - [**Who is Using Terraform in the Industry?**](#who-is-using-terraform-in-the-industry)
+  - [**In IaC, What is Orchestration? How Does Terraform Act as an Orchestrator?**](#in-iac-what-is-orchestration-how-does-terraform-act-as-an-orchestrator)
+    - [**Terraform as an Orchestrator:**](#terraform-as-an-orchestrator)
+  - [**Best Practice for Supplying AWS Credentials to Terraform**](#best-practice-for-supplying-aws-credentials-to-terraform)
+    - [**Best Practices for Providing AWS Credentials:**](#best-practices-for-providing-aws-credentials)
+  - [**AWS Credential Lookup Order in Terraform**](#aws-credential-lookup-order-in-terraform)
+    - [**How AWS Credentials Should NEVER Be Passed to Terraform**](#how-aws-credentials-should-never-be-passed-to-terraform)
+  - [**Why Use Terraform for Different Environments (Production, Testing, etc.)?**](#why-use-terraform-for-different-environments-production-testing-etc)
+    - [**How Terraform Manages Multiple Environments:**](#how-terraform-manages-multiple-environments)
+  - [**Conclusion**](#conclusion)
+  - [Task: Deploy ec2 instance with new nsg using terraform](#task-deploy-ec2-instance-with-new-nsg-using-terraform)
+    - [Directory layout](#directory-layout)
+    - [EC2 module](#ec2-module)
+    - [NSG module](#nsg-module)
+    - [Root](#root)
+  - [Task: Create 2-tier architecture on Azure with Terraform](#task-create-2-tier-architecture-on-azure-with-terraform)
+    - [Directory layout](#directory-layout-1)
+    - [Networking module](#networking-module)
+    - [Db module](#db-module)
+    - [App module](#app-module)
+    - [Root](#root-1)
 
 ## **What is Terraform? What is it used for?**
 
@@ -170,13 +204,16 @@ Using Terraform for multiple environments ensures:
 ### **How Terraform Manages Multiple Environments:**
 
 1. **Use Workspaces**:
+
    ```sh
    terraform workspace new dev
    terraform workspace select dev
    ```
+
 2. **Use Separate State Files**:
    - Store state files in separate S3 buckets for each environment.
 3. **Use Variables for Environment-Specific Configurations**:
+
    ```hcl
    variable "environment" {}
    provider "aws" {
@@ -189,3 +226,373 @@ Using Terraform for multiple environments ensures:
 ## **Conclusion**
 
 Terraform is a powerful, cloud-agnostic IaC tool that simplifies infrastructure automation. By following best practices for **AWS credential management**, **environment separation**, and **orchestration**, teams can efficiently manage and scale infrastructure while ensuring security and maintainability.
+
+## Task: Deploy ec2 instance with new nsg using terraform
+
+- Terraform overview:
+
+![Terraform Overview](<../images/terraform_overview.jpg>)
+
+- Use modular approach with separate module for ec2 and nsg.
+- Terraform commands executed at root level.
+
+### Directory layout
+
+![dir overview](../images/dir_overview.png)
+
+### EC2 module
+
+- main.tf:
+
+```hcl
+variable "security_group_id" {
+  description = "The ID of the security group to associate with the instance"
+  type        = string
+}
+
+provider "aws" {
+  region = "eu-west-1"
+}
+
+resource "aws_instance" "app_instance" {
+  ami                         = "ami-0c1c30571d2dae5c9"
+  instance_type               = "t3.micro"
+  associate_public_ip_address = true
+  key_name                    = "tech501-sameem-aws-key"
+  vpc_security_group_ids      = [var.security_group_id]
+  tags = {
+    Name = "tech501-sameem-terraform-app"
+  }
+}
+```
+
+### NSG module
+
+- main.tf:
+
+```hcl
+provider "aws" {
+  region = "eu-west-1"
+}
+
+data "aws_vpc" "default" {
+  default = true
+}
+
+resource "aws_security_group" "app_sg" {
+  name        = var.sg_name
+  description = var.description
+  vpc_id      = data.aws_vpc.default.id
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = var.ingress_ssh
+  }
+
+  ingress {
+    from_port   = 3000
+    to_port     = 3000
+    protocol    = "tcp"
+    cidr_blocks = var.ingress_nodejs
+  }
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = var.ingress_http
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = var.egress_all
+  }
+}
+```
+
+### Root
+
+- main.tf:
+
+```hcl
+terraform {
+  required_providers {
+    aws = {
+      source  = "hashicorp/aws"
+      version = "3.56.0"
+    }
+  }
+}
+
+provider "aws" {
+  region = "eu-west-1"
+
+}
+
+module "nsg" {
+  source         = "./nsg-module"
+  ingress_http   = var.ingress_http
+  egress_all     = var.egress_all
+  ingress_nodejs = var.ingress_nodejs
+  ingress_ssh    = var.ingress_ssh
+  sg_name        = var.sg_name
+  description    = var.description
+}
+
+module "ec2" {
+  source            = "./ec2-module"
+  ami               = var.ami
+  instance_type     = var.instance_type
+  key_name          = var.key_name
+  instance_name     = var.instance_name
+  associate_public_ip_address = var.associate_public_ip_address
+  security_group_id = module.nsg.security_group_id
+}
+```
+
+## Task: Create 2-tier architecture on Azure with Terraform
+
+1. Install Azure CLI.
+2. Open terminal and run: `az login`.
+   - This should open a browser window for azure authentication via AD, which will bypass any need for sensitive credentials in provider block.
+
+### Directory layout
+
+- See below:
+
+.
+├── README.md
+├── app-module
+│   ├── main.tf
+│   ├── outputs.tf
+│   └── variables.tf
+├── db-module
+│   ├── main.tf
+│   ├── outputs.tf
+│   └── variables.tf
+├── main.tf
+├── networking-module
+│   ├── main.tf
+│   ├── outputs.tf
+│   └── variables.tf
+├── terraform.tfvars
+└── variables.tf
+
+### Networking module
+
+-  main.tf:
+
+```hcl
+resource "azurerm_public_ip" "app_ip" {
+  name                = "tech501-sameem-terraform-app-public-ip"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+  allocation_method   = "Dynamic"
+}
+
+resource "azurerm_network_interface" "app_nic" {
+  name                = "tech501-sameem-terraform-app-nic"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+
+  ip_configuration {
+    name                          = "tech501-sameem-terraform-app-nic-ip"
+    subnet_id                     = var.app_subnet_id
+    private_ip_address_allocation = "Dynamic"
+    public_ip_address_id          = azurerm_public_ip.app_ip.id
+  }
+}
+
+resource "azurerm_network_interface" "db_nic" {
+  name                = "tech501-sameem-terraform-app-db-nic"
+  resource_group_name = var.resource_group_name
+  location            = var.location
+
+  ip_configuration {
+    name                          = "tech501-sameem-terraform-app-db-nic-ip"
+    subnet_id                     = var.db_subnet_id
+    private_ip_address_allocation = "Static"
+    private_ip_address            = var.private_ip_address
+  }
+}
+
+resource "azurerm_network_interface_security_group_association" "app_nsg_assoc" {
+  network_interface_id      = azurerm_network_interface.app_nic.id
+  network_security_group_id = var.app_network_security_group_id
+}
+
+resource "azurerm_network_interface_security_group_association" "db_nsg_assoc" {
+  network_interface_id      = azurerm_network_interface.db_nic.id
+  network_security_group_id = var.db_network_security_group_id
+}
+```
+
+- where possible, have used existing networking resources on azure e.g. nsg, else they are created as above defined by resource block.
+- can see app_nic has been provided public IP, db_nic has not. It has fixed static IP.
+- need to associate nsg with the nic (see last two resources above)
+- these networking components are dependencies for the db vm and app vm.
+
+### Db module
+
+- main.tf:
+
+```hcl
+resource "azurerm_linux_virtual_machine" "vm" {
+  name                  = "tech501-sameem-terraform-app-db-vm"
+  resource_group_name   = var.resource_group_name
+  location              = var.location
+  size                  = "Standard_B1s"
+  admin_username        = "adminuser"
+  network_interface_ids = [var.network_interface_id]
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "StandardSSD_LRS"
+  }
+  source_image_id = var.db_source_image_id
+  computer_name   = "sameem-db-vm"
+
+  admin_ssh_key {
+    username   = "adminuser"
+    public_key = var.public_key
+  }
+}
+```
+
+- only created after networking resources provisioned
+- ensure image source is correctly referenced (existing db custom image on azure).
+- ssh key already exists in azure hence referenced as such.
+- other standard config for db vm.
+
+### App module
+
+- main.tf:
+
+```hcl
+resource "azurerm_linux_virtual_machine" "vm" {
+  name                  = "tech501-sameem-terraform-app-vm"
+  resource_group_name   = var.resource_group_name
+  location              = var.location
+  size                  = "Standard_B1s"
+  admin_username        = "adminuser"
+  network_interface_ids = [var.network_interface_id]
+  os_disk {
+    caching              = "ReadWrite"
+    storage_account_type = "StandardSSD_LRS"
+  }
+  source_image_id = var.app_source_image_id
+  computer_name   = "sameem-app-vm"
+
+  admin_ssh_key {
+    username   = "adminuser"
+    public_key = var.public_key
+  }
+
+  custom_data = base64encode(var.custom_data)
+}
+```
+
+- only created after db vm is provisioned
+- custom (user) data provided for initial vm setup so app is ready to access as vm is created
+- ensure correct source image id is referenced as contains app code and other dependencies.
+- use existing ssh key
+- other standard app vm config.
+
+### Root
+
+- main.tf:
+
+```hcl
+terraform {
+  required_providers {
+    azurerm = {
+      source  = "hashicorp/azurerm"
+      version = "~> 3.0"
+    }
+  }
+  required_version = ">= 1.0.0"
+}
+
+provider "azurerm" {
+  features {}
+  skip_provider_registration = true
+}
+
+data "azurerm_resource_group" "rg" {
+  name = "tech501"
+}
+
+data "azurerm_virtual_network" "vnet" {
+  name                = "tech501-sameem-2-subnet-vnet"
+  resource_group_name = data.azurerm_resource_group.rg.name
+}
+
+data "azurerm_subnet" "public_subnet" {
+  name                 = "public-subnet"
+  virtual_network_name = data.azurerm_virtual_network.vnet.name
+  resource_group_name  = data.azurerm_resource_group.rg.name
+}
+
+data "azurerm_subnet" "private_subnet" {
+  name                 = "private-subnet"
+  virtual_network_name = data.azurerm_virtual_network.vnet.name
+  resource_group_name  = data.azurerm_resource_group.rg.name
+}
+
+data "azurerm_network_security_group" "app_nsg" {
+  name                = "tech501-sameem-in-3-subnet-sparta-app-nsg"
+  resource_group_name = data.azurerm_resource_group.rg.name
+}
+
+data "azurerm_network_security_group" "db_nsg" {
+  name                = "tech501-sameem-in-3-subnet-sparta-app-db-nsg"
+  resource_group_name = data.azurerm_resource_group.rg.name
+
+}
+
+data "azurerm_ssh_public_key" "ssh" {
+  name                = "tech501-sameem-az-key"
+  resource_group_name = data.azurerm_resource_group.rg.name
+}
+
+module "networking" {
+  source                        = "./networking-module"
+  resource_group_name           = data.azurerm_resource_group.rg.name
+  location                      = data.azurerm_resource_group.rg.location
+  app_subnet_id                 = data.azurerm_subnet.public_subnet.id
+  db_subnet_id                  = data.azurerm_subnet.private_subnet.id
+  private_ip_address            = var.private_ip_address
+  app_network_security_group_id = data.azurerm_network_security_group.app_nsg.id
+  db_network_security_group_id  = data.azurerm_network_security_group.db_nsg.id
+  public_key                    = var.public_key
+}
+
+module "db" {
+  source               = "./db-module"
+  resource_group_name  = data.azurerm_resource_group.rg.name
+  location             = data.azurerm_resource_group.rg.location
+  db_source_image_id   = var.db_source_image_id
+  public_key           = var.public_key
+  network_interface_id = module.networking.db_network_interface_id
+  depends_on           = [module.networking]
+}
+
+module "app" {
+  source               = "./app-module"
+  app_source_image_id  = var.app_source_image_id
+  resource_group_name  = data.azurerm_resource_group.rg.name
+  location             = data.azurerm_resource_group.rg.location
+  network_interface_id = module.networking.app_network_interface_id
+  public_key           = var.public_key
+  custom_data          = var.custom_data
+  depends_on           = [module.db]
+}
+```
+
+- brings together the modules (see module block), existing resources for reference (see data blocks) and provider import (AzureRM in our case).
+- terraform commands ran from the root, variable values passed either in .tfvars file or referenced from data blocks
+- order of creation, see `depends_on` field.
+- need to pass the variables into the module block as required for the module to function.
